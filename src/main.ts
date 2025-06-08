@@ -3,6 +3,23 @@ import "./style.css";
 import vertexShaderSource from "./shader.vert?raw";
 import fragmentShaderSource from "./shader.frag?raw";
 
+import { mat4 } from "gl-matrix";
+
+type ProgramInfo = {
+  program: WebGLProgram;
+  attribLocations: {
+    position: number;
+    texCoord: number;
+    normal: number;
+  };
+  uniformLocations: {
+    mvpMatrix: WebGLUniformLocation | null;
+    texture: WebGLUniformLocation | null;
+    normalMatrix: WebGLUniformLocation | null;
+    lightDirection: WebGLUniformLocation | null;
+  };
+};
+
 // シェーダーをコンパイルするヘルパー関数
 const createShader = (
   gl: WebGL2RenderingContext,
@@ -83,8 +100,8 @@ const setupTexture = (
     gl.RGBA,
     gl.UNSIGNED_BYTE,
     new Uint8Array([
-      0, 0,
-      255, 255,
+      0, 0, 255,
+      255,
     ]),
   );
 
@@ -135,84 +152,318 @@ const main = () => {
   const program = createProgram(gl, vertexShader, fragmentShader);
   if (!program) return;
 
-  // ===== attributeとuniformの場所を取得 =====
-  const positionAttributeLocation = gl.getAttribLocation(program, "a_position");
-  const texCoordAttributeLocation = gl.getAttribLocation(program, "a_texCoord");
-  const textureUniformLocation = gl.getUniformLocation(program, "u_texture");
+  const programInfo: ProgramInfo = {
+    program: program,
+    attribLocations: {
+      position: gl.getAttribLocation(program, "a_position"),
+      texCoord: gl.getAttribLocation(program, "a_texCoord"),
+      normal: gl.getAttribLocation(program, "a_normal"),
+    },
+    uniformLocations: {
+      mvpMatrix: gl.getUniformLocation(program, "u_mvpMatrix"),
+      texture: gl.getUniformLocation(program, "u_texture"),
+      normalMatrix: gl.getUniformLocation(program, "u_normalMatrix"),
+      lightDirection: gl.getUniformLocation(program, "u_lightDirection"),
+    },
+  };
 
   // 頂点データを設定
   const positionBuffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
 
-  // 三角形の頂点座標
+  // 立方体の頂点座標 (3次元)
   const positions = [
-    // 1つ目の三角形
-    -0.5, 0.5, // 左上
-    -0.5, -0.5, // 左下
-    0.5, 0.5, // 右上
-    // 2つ目の三角形
-    -0.5, -0.5, // 左下
-    0.5, -0.5, // 右下
-    0.5, 0.5, // 右上
+    // Front face
+    -1.0, -1.0, 1.0,
+    1.0, -1.0, 1.0,
+    1.0, 1.0, 1.0,
+    -1.0, -1.0, 1.0,
+    1.0, 1.0, 1.0,
+    -1.0, 1.0, 1.0,
+
+    // Back face
+    -1.0, -1.0, -1.0,
+    -1.0, 1.0, -1.0,
+    1.0, 1.0, -1.0,
+    -1.0, -1.0, -1.0,
+    1.0, 1.0, -1.0,
+    1.0, -1.0, -1.0,
+
+    // Top face
+    -1.0, 1.0, -1.0,
+    -1.0, 1.0, 1.0,
+    1.0, 1.0, 1.0,
+    -1.0, 1.0, -1.0,
+    1.0, 1.0, 1.0,
+    1.0, 1.0, -1.0,
+
+    // Bottom face
+    -1.0, -1.0, -1.0,
+    1.0, -1.0, -1.0,
+    1.0, -1.0, 1.0,
+    -1.0, -1.0, -1.0,
+    1.0, -1.0, 1.0,
+    -1.0, -1.0, 1.0,
+
+    // Right face
+    1.0, -1.0, -1.0,
+    1.0, 1.0, -1.0,
+    1.0, 1.0, 1.0,
+    1.0, -1.0, -1.0,
+    1.0, 1.0, 1.0,
+    1.0, -1.0, 1.0,
+
+    // Left face
+    -1.0, -1.0, -1.0,
+    -1.0, -1.0, 1.0,
+    -1.0, 1.0, 1.0,
+    -1.0, -1.0, -1.0,
+    -1.0, 1.0, 1.0,
+    -1.0, 1.0, -1.0,
   ];
+
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
 
-  /*  const colorAttributeLocation = gl.getAttribLocation(program, "a_color");
-  const colorBuffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+  //テクスチャのデータをバッファに書き込む
+  const texCoordBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
 
-  const colors = [
-    1.0, 0.0,
-    0.0, 0.0,
-    1.0, 0.0,
-    0.0, 0.0,
-    1.0,
-  ]; */
-
-  const textCoordBuffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, textCoordBuffer);
-  // 各頂点に対応するテクスチャ座標を追加
+  // 各面に対応するテクスチャ座標
   const texCoords = [
-    // 1つ目の三角形
-    0.0, 1.0, // 左上
-    0.0, 0.0, // 左下
-    1.0, 1.0, // 右上
-    // 2つ目の三角形
-    0.0, 0.0, // 左下
-    1.0, 0.0, // 右下
-    1.0, 1.0, // 右上
+    // Front
+    0.0, 0.0, 1.0,
+    0.0, 1.0, 1.0,
+    0.0, 0.0, 1.0,
+    1.0, 0.0, 1.0,
+    // Back
+    0.0, 0.0, 1.0,
+    0.0, 1.0, 1.0,
+    0.0, 0.0, 1.0,
+    1.0, 0.0, 1.0, // Top
+    0.0, 0.0, 1.0,
+    0.0, 1.0, 1.0,
+    0.0, 0.0, 1.0,
+    1.0, 0.0, 1.0, // Bottom
+    0.0, 0.0, 1.0,
+    0.0, 1.0, 1.0,
+    0.0, 0.0, 1.0,
+    1.0, 0.0, 1.0, // Right
+    0.0, 0.0, 1.0,
+    0.0, 1.0, 1.0,
+    0.0, 0.0, 1.0,
+    1.0, 0.0, 1.0, // Left
+    0.0, 0.0, 1.0,
+    0.0, 1.0, 1.0,
+    0.0, 0.0, 1.0,
+    1.0, 0.0, 1.0,
   ];
+
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STATIC_DRAW);
 
+  // 立方体の各頂点の法線ベクトル
+  const normals = [
+    // Front face
+    0.0, 0.0, 1.0,
+    0.0, 0.0, 1.0,
+    0.0, 0.0, 1.0,
+    0.0, 0.0, 1.0,
+    0.0, 0.0, 1.0,
+    0.0, 0.0, 1.0,
+
+    // Back face
+    0.0, 0.0, -1.0,
+    0.0, 0.0, -1.0,
+    0.0, 0.0, -1.0,
+    0.0, 0.0, -1.0,
+    0.0, 0.0, -1.0,
+    0.0, 0.0, -1.0,
+
+    // Top face
+    0.0, 1.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 1.0, 0.0,
+    0.0, 1.0, 0.0,
+
+    // Bottom face
+    0.0, -1.0, 0.0,
+    0.0, -1.0, 0.0,
+    0.0, -1.0, 0.0,
+    0.0, -1.0, 0.0,
+    0.0, -1.0, 0.0,
+    0.0, -1.0, 0.0,
+
+    // Right face
+    1.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+    1.0, 0.0, 0.0,
+
+    // Left face
+    -1.0, 0.0, 0.0,
+    -1.0, 0.0, 0.0,
+    -1.0, 0.0, 0.0,
+    -1.0, 0.0, 0.0,
+    -1.0, 0.0, 0.0,
+    -1.0, 0.0, 0.0,
+  ];
+
+  const normalBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
+
   setupTexture(gl, "/sample.png", (texture) => {
-    // 描画処理
-    gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-    gl.clearColor(0.8, 0.5, 0.5, 1.0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
 
-    gl.useProgram(program);
+    let cubeRotation = 0.0;
+    let then = 0;
 
-    gl.enableVertexAttribArray(positionAttributeLocation);
-    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    gl.vertexAttribPointer(positionAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+    const render = (now: number) => {
+      now *= 0.001;
+      const deltaTime = now - then;
+      then = now;
 
-    gl.enableVertexAttribArray(texCoordAttributeLocation);
-    gl.bindBuffer(gl.ARRAY_BUFFER, textCoordBuffer);
-    gl.vertexAttribPointer(texCoordAttributeLocation, 2, gl.FLOAT, false, 0, 0);
+      drawScene(
+        gl,
+        programInfo,
+        program,
+        { positionBuffer, texCoordBuffer },
+        texture,
+        cubeRotation,
+      );
 
-    gl.activeTexture(gl.TEXTURE0);
+      cubeRotation += deltaTime;
 
-    gl.bindTexture(gl.TEXTURE_2D, texture);
+      requestAnimationFrame(render);
+    };
 
-    gl.uniform1i(textureUniformLocation, 0);
-
-    //色情報のattibuteを有効化
-    /*   gl.enableVertexAttribArray(colorAttributeLocation);
-  gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer); //色バッファをバインド
-  gl.vertexAttribPointer(colorAttributeLocation, 3, gl.FLOAT, false, 0, 0); */
-
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    requestAnimationFrame(render);
   });
+};
+
+const drawScene = (
+  gl: WebGL2RenderingContext,
+  programInfo: ProgramInfo,
+  program: WebGLProgram,
+  buffers: { positionBuffer: WebGLBuffer; texCoordBuffer: WebGLBuffer },
+  texture: WebGLTexture,
+  cubeRotation: number,
+) => {
+  gl.clearColor(0.0, 0.0, 0.0, 1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  //プロジェクション行列：カメラのレンズ
+  const fieldOfView = (45 * Math.PI) / 180;
+  const aspect = gl.canvas.width / gl.canvas.height;
+  const zNear = 0.1;
+  const zFar = 100.0;
+  const projectionMatrix = mat4.create();
+  mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
+
+  //モデル行列：対象の位置・回転
+  const modelMatrix = mat4.create();
+
+  mat4.translate(
+    modelMatrix,
+    modelMatrix,
+    [
+      -0.0, 0.0, -12.0,
+    ],
+  );
+  mat4.rotate(
+    modelMatrix,
+    modelMatrix,
+    cubeRotation,
+    [
+      0, 0, 1,
+    ],
+  );
+  mat4.rotate(
+    modelMatrix,
+    modelMatrix,
+    cubeRotation * 0.7,
+    [
+      0, 1, 0,
+    ],
+  );
+
+  //ビュー行列：カメラの位置 今回固定なのでこのまま。
+  const viewMatrix = mat4.create();
+
+  //MBP行列の作成( P * V * M の順で掛ける)
+  const mvpMatrix = mat4.create();
+  mat4.multiply(mvpMatrix, projectionMatrix, viewMatrix);
+  mat4.multiply(mvpMatrix, mvpMatrix, modelMatrix);
+
+  gl.useProgram(program);
+
+  // ===== 描画 =====
+  gl.useProgram(program);
+
+  // 頂点属性の設定
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffers.positionBuffer);
+  gl.vertexAttribPointer(
+    programInfo.attribLocations.position,
+    3,
+    gl.FLOAT,
+    false,
+    0,
+    0,
+  ); // 3次元なのでsize=3
+  gl.enableVertexAttribArray(programInfo.attribLocations.position);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffers.texCoordBuffer);
+
+  gl.vertexAttribPointer(
+    programInfo.attribLocations.texCoord,
+    2,
+    gl.FLOAT,
+    false,
+    0,
+    0,
+  );
+  gl.enableVertexAttribArray(programInfo.attribLocations.texCoord);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffers.positionBuffer);
+  gl.vertexAttribPointer(
+    programInfo.attribLocations.normal,
+    3,
+    gl.FLOAT,
+    false,
+    0,
+    0,
+  );
+  gl.enableVertexAttribArray(programInfo.attribLocations.normal);
+
+  // テクスチャの設定
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.uniform1i(programInfo.uniformLocations.texture, 0);
+
+  const normalMatrix = mat4.create();
+  mat4.invert(normalMatrix, modelMatrix);
+  mat4.transpose(normalMatrix, normalMatrix);
+
+  gl.uniformMatrix4fv(
+    programInfo.uniformLocations.normalMatrix,
+    false,
+    normalMatrix,
+  );
+
+  // シェーダーにMVP行列を渡す
+  gl.uniformMatrix4fv(programInfo.uniformLocations.mvpMatrix, false, mvpMatrix);
+
+  // 光源の方向を設定（例：右上から左下へ向かう光）
+  const lightDirection = [
+    5, 5, 8,
+  ];
+  gl.uniform3fv(programInfo.uniformLocations.lightDirection, lightDirection);
+
+  // 描画命令 (頂点36個)
+  gl.drawArrays(gl.TRIANGLES, 0, 36);
 };
 
 window.onload = main;
